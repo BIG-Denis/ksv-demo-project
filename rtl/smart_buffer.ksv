@@ -1,0 +1,145 @@
+module </ module_id />smart_buffer (
+  input  logic                         clk_i,
+  input  logic                         rstn_i,
+
+<$ for port in ports: $>
+<$   name  = port["name"] $>
+<$   width = port["width"] $>
+  input  logic                         </ name />_v_i,
+  input  logic [</ width /> - 1:0]     </ name />_data_i,
+<$ end $>
+
+  output logic                         read_v_o,
+  output logic [</ max_width /> - 1:0] read_data_o
+);
+
+//////////////////////// INTERNAL CONSTANTS DECLARATION ///////////////////////
+
+localparam int unsigned PORT_PTR_WIDTH = $clog2(</ port_num />);
+
+
+///////////////////////// INTERNAL SIGNALS DECLARATION ////////////////////////
+
+logic [</ port_num />  - 1:0] inbound_valid_vec;
+logic [</ max_width /> - 1:0] inbound_data_vec [0:</ port_num /> - 1];
+logic [PORT_PTR_WIDTH  - 1:0] grant_ptr;
+
+logic [</ max_width /> - 1:0] selected_v;
+logic [</ max_width /> - 1:0] selected_data;
+
+<$ if egress: $>
+logic                         egress_data_en;
+logic [</ max_width /> - 1:0] egress_data_next;
+logic [</ max_width /> - 1:0] egress_data_ff;
+
+logic                         egress_v_next;
+logic                         egress_v_ff;
+
+<$ end $>
+
+///////////////////////// INTERNAL SIGNALS ASSIGNMENT /////////////////////////
+
+// inbound valid vector
+
+<$ for port_idx, port in enumerate(ports): $>
+assign inbound_valid_vec[</ port_idx />] = </ port["name"] />_v_i;
+<$ end $>
+
+// inbound data vector
+
+<$ for port_idx, port in enumerate(ports): $>
+assign inbound_data_vec[</ port_idx />] = </ port["name"] />_data_i;
+<$ end $>
+
+
+///////////////////////////////// ARBITRATING /////////////////////////////////
+
+<$ if arbiter == "find_first": $>
+always_comb begin
+  priority case (1'b1)
+<$ for port_idx in range(port_num): $>
+    inbound_valid_vec[</ port_idx />]: grant_ptr = PORT_PTR_WIDTH'(</ port_idx />);
+<$ end $>
+    default:                           grant_ptr = PORT_PTR_WIDTH'('0);
+  endcase
+end
+
+<$ elif arbiter == "round_robin": $>
+round_robin_arbiter #(
+  .ARB_NUM(</ port_num />)
+) i_round_robin_arbiter (
+  .clk_i  (clk_i),
+  .rstn_i (rstn_i),
+
+  .req_i  (inbound_valid_vec),
+  .gnt_o  (grant_ptr)
+);
+
+<$ end $>
+
+assign selected_v    = inbound_valid_vec[grant_ptr];
+assign selected_data = </ max_width />'(inbound_data_vec [grant_ptr]);
+
+
+<$ if egress: $>
+/////////////////////////////// EGRESS REGISTER ///////////////////////////////
+
+// valid
+
+assign egress_v_next = selected_v;
+
+always_ff @(posedge clk_i or negedge rstn_i) begin
+  if (~rstn_i) begin
+    egress_v_ff <= 1'b0;
+  end
+  else begin
+    egress_v_ff <= egress_v_next;
+  end
+end
+
+// data
+
+assign egress_data_en   = selected_v;
+assign egress_data_next = selected_data;
+
+always_ff @(posedge clk_i) begin
+  if (egress_data_en) begin
+    egress_data_ff <= egress_data_next;
+  end
+end
+
+<$ end $>
+
+////////////////////////// OUTPUT SIGNALS ASSIGNMENT //////////////////////////
+
+// read port
+
+<$ if egress: $>
+assign read_v_o =    egress_v_ff;
+assign read_data_o = egress_data_ff;
+
+<$ else: $>
+assign read_v_o =    selected_v;
+assign read_data_o = selected_data;
+
+<$ end $>
+
+<$ if assertions: $>
+////////////////////////////////// ASSERTIONS /////////////////////////////////
+
+<$   for port in ports: $>
+<$     name  = port["name"] $>
+// port </ name />
+
+assert property (@(posedge clk_i) disable iff (!rstn_i)
+  !$isunknown(</ name />_v_i))
+  else $error("</ name />_v_i must be known!");
+
+assert property (@(posedge clk_i) disable iff (!rstn_i)
+  </ name />_v_i |-> !$isunknown(</ name />_data_i))
+  else $error("</ name />_data_i must be known when </ name />_v_i is high!");
+
+<$   end $>
+<$ end $>
+
+endmodule
