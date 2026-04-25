@@ -1,0 +1,4 @@
+smart_buffer.sv
+<$ if arbiter == "round_robin": $>
+round_robin_arbiter.sv
+<$ end $>

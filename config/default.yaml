@@ -1,0 +1,14 @@
+# common
+module_id:  ksv_example
+assertions: true
+
+# inner logic
+arbiter: find_first
+egress:  true
+ports:
+  - name:  x1ip
+    width: 16
+  - name:  y2ip
+    width: 32
+  - name:  z3ip
+    width: 64
